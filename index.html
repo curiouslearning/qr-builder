@@ -47,6 +47,8 @@ button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(
 button:disabled{opacity:.5;cursor:not-allowed}
 .qrbox{display:grid;place-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;min-height:260px}
 .qrbox svg{width:min(100%,320px);height:auto;display:block}
+.qrbox.stale svg{opacity:.18}
+.status.stale{margin:0 0 12px;font-weight:700}
 .meta{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px;margin-top:12px}
 .meta dt{color:var(--muted)}.meta dd{margin:0;font-family:var(--mono);font-size:13px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .status{border-radius:8px;padding:10px 12px;font-size:14px;margin-top:12px}
@@ -119,6 +121,7 @@ summary{cursor:pointer;font-weight:700}
 
 <section class="card" aria-labelledby="qr-h">
   <h2 id="qr-h">QR code</h2>
+  <div id="stale" class="status bad stale" role="alert" hidden>This QR code is out of date. The fields have changed since it was built. Press “Build QR code” to update it.</div>
   <div class="qrbox" id="qrbox"><span class="hint" id="qrempty">Fill in partner and campaign, then build.</span></div>
   <div class="row" style="margin-top:12px">
     <button type="button" id="dlpng" disabled>Download PNG</button>
@@ -2525,13 +2528,13 @@ var qrcode = function() {
     var qr = qrcode(0, "M"); qr.addData(url); qr.make();
     var svg = qr.createSvgTag({cellSize:8, margin:4, scalable:true});
     qrbox.innerHTML = svg;
-    current = {url:url, referrer:ref, svg:svg, modules:qr.getModuleCount(), version:(qr.getModuleCount()-17)/4, file:"curious-reader-qr_"+src+"_"+cid+(lang?"_"+lang:"")};
+    current = {key:inputKey(), url:url, referrer:ref, svg:svg, modules:qr.getModuleCount(), version:(qr.getModuleCount()-17)/4, file:"curious-reader-qr_"+src+"_"+cid+(lang?"_"+lang:"")};
     $("m-link").textContent = url; $("m-ref").textContent = ref;
     $("m-size").textContent = url.length+" characters · QR version "+current.version+" ("+current.modules+"×"+current.modules+")";
     var note = "Ready. On first open the app will record source = "+src+", campaign_id = "+cid+(lang?" and open "+lang+" directly.":".");
     if (current.version > 15) showStatus("warn", note+" This code is dense; keep it at least 3 cm wide when printed."); else showStatus("ok", note);
     store("cr_qr_last", {partner:src, campaign:cid, facilitator:fac, language:lang});
-    updateButtons();
+    updateButtons(); checkStale();
   }
 
   function showStatus(kind,msg){ status.className="status "+kind; status.textContent=msg; status.hidden=false; }
@@ -2559,11 +2562,17 @@ var qrcode = function() {
     var fallback=function(){ var r=document.createRange(); r.selectNodeContents($("m-link")); var s=getSelection(); s.removeAllRanges(); s.addRange(r); showStatus("warn","Copy is blocked here; the link is selected, press Ctrl+C / Cmd+C."); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(current.url).then(done, fallback); else fallback(); });
 
+  // Warn when the fields no longer match the QR code on screen.
+  function inputKey(){ return [clean(partner.value), clean(campaign.value), clean(facilitator.value), language.value].join("|"); }
+  function checkStale(){ var s = !!current && inputKey() !== current.key; $("stale").hidden = !s; qrbox.classList.toggle("stale", s); }
+  [partner,campaign,facilitator].forEach(function(el){ el.addEventListener("input", checkStale); });
+  language.addEventListener("change", checkStale);
+
   $("build").addEventListener("click", build);
   [partner,campaign,facilitator].forEach(function(el){ el.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); build(); } }); });
   $("reset").addEventListener("click", function(){ partner.value=campaign.value=facilitator.value=""; language.value=""; current=null;
     qrbox.innerHTML='<span class="hint">Fill in partner and campaign, then build.</span>'; status.hidden=true;
-    ["m-link","m-ref","m-size"].forEach(function(id){ $(id).textContent="—"; }); updateButtons(); });
+    ["m-link","m-ref","m-size"].forEach(function(id){ $(id).textContent="—"; }); updateButtons(); checkStale(); });
 
   function applyManifestText(txt){
     try { var m = langsFromManifest(JSON.parse(txt)); manifest=m; store("cr_qr_manifest", m); renderLangs(m); $("mstatus").textContent="Applied manifest v"+m.version+": "+m.langs.length+" languages."; }
